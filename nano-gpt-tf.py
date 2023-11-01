@@ -13,9 +13,10 @@ from tensorflow import stop_gradient
 from tensorflow import zeros, ones
 from tensorflow import where
 from tensorflow import concat
+from tensorflow import reshape
 from tensorflow.linalg import diag, matmul
 from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.layers import Layer, Dropout, ReLU, LayerNormalization, Embedding, concatenate
+from tensorflow.keras.layers import Layer, Dropout, ReLU, LayerNormalization, Embedding, concatenate, Dense
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 from tensorflow.math import reduce_mean, sqrt
@@ -26,7 +27,7 @@ from random import randint
 
 # hyperparameters
 batch_size = 16 # how many independent sequences will we process in parallel?
-block_size = 16 # what is the maximum context length for predictions?
+block_size = 32 # what is the maximum context length for predictions?
 max_iters = 5000
 eval_interval = 100
 learning_rate = 1e-3
@@ -77,7 +78,7 @@ class Head(Layer):
         self.n_embed = n_embd
         
     def get_linear(self):
-        return Linear(self.n_embed, units=self.head_size, use_bias=False)
+        return Dense(self.n_embed)
         
     def build(self, input_shape):
         self.key = self.get_linear()
@@ -93,8 +94,7 @@ class Head(Layer):
         k = self.key(inputs)
         q = self.query(inputs)
         # compute attention scores / affinities
-        wei = matmul(q, transpose(k,(-2,-1))) * C**0.5 
-        wei = where(self.tril[:T,:T] == 0, float("-inf"), wei)
+        wei = q @ transpose(k, perm=[0,2,1]) * C**0.5
         wei = softmax(wei, -1)
         wei = self.dropout(wei)
         aggregator = self.value(inputs)
@@ -107,7 +107,7 @@ class MultiHeadAttention(Layer):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = [Head(head_size) for _ in range(num_heads)]
-        self.proj = Linear(head_size * num_heads, n_embd)
+        self.proj = Dense(n_embd)
         
     def build(self, inpit_shape):
         self.dropout = Dropout(dropout)
@@ -126,9 +126,9 @@ class FeedForward(Layer):
     
     def build(self, input_shape):
         self.net = Sequential([
-            Linear(self.n_embd, 4 * self.n_embd),
+            Dense(4 * self.n_embd),
             ReLU(),
-            Linear(4 * self.n_embd, self.n_embd),
+            Dense(self.n_embd),
             Dropout(dropout)
         ])
     
@@ -166,7 +166,7 @@ class GPTLanguageModel(Layer):
         self.position_embedding_table = Embedding(vocab_size, n_embd)
         self.blocks = Sequential([Block(n_embd, n_heads=n_head) for _ in range(n_layer)])
         self.ln_f = LayerNormalization()
-        self.lm_head = Linear(n_embd, vocab_size)
+        self.lm_head = Dense(vocab_size)
         
     def build(self, input_size):
         self.built = True
@@ -202,4 +202,4 @@ cp_callback = ModelCheckpoint(
     verbose=1)
 
 
-model.fit(x=x_train, y=y_train, epochs=epochs, validation_data=(x_test, y_test), callbacks=[cp_callback])
+model.fit(x=x_train, y=y_train, epochs=epochs, validation_data=(x_test, y_test), callbacks=[cp_callback], batch_size=batch_size)
