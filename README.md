@@ -1,1 +1,1 @@
-wip
+nano gpt in tensorflow
